@@ -82,14 +82,17 @@ def bullet_clean(bullet_list):
 def draw_img(gamepad, img, x, y):
     gamepad.blit(img, (x, y))
 
-def init_game():
+def init_game(render):
     global clock
     global flan_image
     global bullet_image
     global flan_size, bullet_size
     global bullet_list
     pg.init()
-    gamepad = pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    if render:
+        gamepad = pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    else:
+        gamepad = pg.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     flan_image = []
     flan_stop = pg.image.load("./image/flan_stop.jpg")
     flan_left1 = pg.image.load("./image/flan_left_1.jpg")
@@ -205,13 +208,17 @@ def run(gamepad):
         pg.display.flip()
 
 class Env:
+    def __init__(self, render):
+        self.render = render
+
     def reset(self):
-        gamepad = init_game()
+        gamepad = init_game(self.render)
         self.state = State(gamepad)
         self.state.gamepad.fill((0, 0, 0))
         draw_img(self.state.gamepad, flan_image[self.state.flan_flag], self.state.flan_rect.x, self.state.flan_rect.y)
         ret_state = pg.surfarray.array3d(self.state.gamepad)
-        pg.display.flip()
+        if self.render:
+            pg.display.flip()
         return ret_state, 0, False, None
 
     def step(self, action):
@@ -275,7 +282,8 @@ class Env:
             for bullet in state.bullet_list:
                 bullet.draw_bullet(state.gamepad)
             ret_state = pg.surfarray.array3d(state.gamepad)
-            pg.display.flip()
+            if self.render:
+                pg.display.flip()
 
             for bullet in state.bullet_list:
                 if state.flan_rect.colliderect(bullet.rect):
@@ -288,7 +296,7 @@ if __name__ == "__main__":
     mode = "play"
     if mode == "play":
         for i in range(10):
-            gamepad = init_game()
+            gamepad = init_game(True)
             run(gamepad)
 
 
