@@ -1,4 +1,4 @@
-import env_game as env
+import Env_Game as env
 import numpy as np
 from PIL import ImageOps
 from PIL import Image
@@ -34,6 +34,7 @@ g1.start()
 g2.start()
 g3.start()
 g4.start()
+
 """
 while(True):
     a = np.random.randint(0, 5)

@@ -9,6 +9,7 @@ MAX_SPEED = 20
 BULLET_MAX_SPEED = 12
 DSPEED = 2
 PROBABILITY = 2
+ACTION_SIZE = 5
 
 class Bullet:
     def __init__(self):
@@ -209,6 +210,8 @@ def run(gamepad):
 
 class Env:
     def __init__(self, render):
+        self.action_size = 5
+
         self.render = render
 
     def reset(self):
@@ -293,11 +296,10 @@ class Env:
         return ret_state, 1, False, _
 
 if __name__ == "__main__":
-    mode = "play"
-    if mode == "play":
-        for i in range(10):
-            gamepad = init_game(True)
-            run(gamepad)
+    iter = 10
+    for _ in range(iter):
+        gamepad = init_game(True)
+        run(gamepad)
 
 
 
