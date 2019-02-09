@@ -4,6 +4,7 @@ from tensorflow.contrib.keras.api.keras import backend as K
 from tensorflow.contrib.keras.api.keras.layers import LSTM, Conv2D, InputLayer, TimeDistributed, Flatten, Dense, Input, Reshape
 from tensorflow.contrib.keras.api.keras.optimizers import RMSprop
 from tensorflow.contrib.keras.api.keras.models import Model
+from matplotlib import pyplot as plt
 
 import numpy as np
 from PIL import ImageOps
@@ -15,13 +16,35 @@ THREAD_NUM = 4
 SEQUENCE_SIZE = 8
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
+EPISODES = 800000
+episode = 0
+global_p_max = []
+global_score = []
+global_episode = []
+global_actor_loss = []
+global_critic_loss = []
+
+def smooth(l):
+    if len(l) < 10:
+        return
+    tmp = []
+    for i in range(len(l)):
+        tmp.append(l[i])
+        if i == 8:
+            break
+    for i in range(9, len(l)):
+        tmp.append(sum(l[i-9:i+1])/10)
+    l = tmp
+    return l
+
 
 def preprocess(arr):
     #returns preprocessed image
-    return ImageOps.mirror(Image.fromarray(arr).rotate(270)).convert('L').resize((RESIZE, RESIZE))
+    im = Image.fromarray(arr)
+    return np.asarray(ImageOps.mirror(im.rotate(270)).convert('L').resize((RESIZE, RESIZE)))
 
 class A3CAgent:
-    def __init__(self, state_size=STATE_SIZE, action_size=ACTION_SIZE, sequence_size=SEQUENCE_SIZE, thread_num=THREAD_NUM):
+    def __init__(self, state_size=STATE_SIZE, action_size=ACTION_SIZE, sequence_size=SEQUENCE_SIZE, thread_num=THREAD_NUM, resume=True):
         self.state_size = state_size
         self.action_size = action_size
         #hyperparameter
@@ -33,7 +56,55 @@ class A3CAgent:
         self.thread_num = thread_num
 
         self.actor, self.critic = self.build_model()
+        self.optimizer = [self.actor_optimizer(), self.critic_optimizer()]
 
+        if resume:
+            self.load_model("./save_model/touhou_a3c")
+
+    def train(self):
+        # creating agents
+        tmp_list = [not bool(i) for i in range(self.thread_num)]
+
+        agents = [Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, render)
+                  for render in tmp_list]
+
+        # starts threads
+        for agent in agents:
+            sleep(1)
+            agent.start()
+
+        # saving model
+        while True:
+            sleep(60)
+            self.save_model("./save_model/touhou_a3c")
+            fig, ax = plt.subplots()
+            global_score = smooth(global_score)
+            ax.plot(global_episode, global_score)
+            ax.set(xlabel='global_episode', ylabel='score', title='Score')
+            fig.savefig('score.png')
+            plt.close(fig)
+            fig, ax = plt.subplots()
+            global_p_max = smooth(global_p_max)
+            ax.plot(global_episode, global_p_max)
+            ax.set(xlabel='global_episode', ylabel='p_max', title='p_max')
+            fig.savefig('p_max.png')
+            plt.close(fig)
+            fig, ax = plt.subplots()
+            global_actor_loss = smooth(global_actor_loss)
+            ax.plot(global_episode, global_actor_loss)
+            ax.set(xlabel='global_episode', ylabel='actor_loss', title='Actor_loss')
+            fig.savefig('actor_loss.png')
+            plt.close(fig)
+            fig, ax = plt.subplots()
+            global_critic_loss = smooth(global_critic_loss)
+            ax.plot(global_episode, global_critic_loss)
+            ax.set(xlabel='global_episode', ylabel='critic_loss', title='Critic_loss')
+            fig.savefig('critic_loss.png')
+            plt.close(fig)
+
+    def play(self):
+        agent = Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, True)
+        agent.play()
 
     def build_model(self):
         #for reshaping tensor
@@ -51,6 +122,10 @@ class A3CAgent:
 
         actor = Model(inputs=input, outputs=policy)
         critic = Model(inputs=input, outputs=value)
+
+        actor._make_predict_function()
+        critic._make_predict_function()
+
 
         actor.summary()
         critic.summary()
@@ -76,7 +151,7 @@ class A3CAgent:
         loss = cross_entropy + 0.01 * minus_entropy
 
         optimizer = RMSprop(lr=self.actor_lr, rho=0.99, epsilon=0.01)
-        updates = optimizer.get_updates(self.actor.trainable_weights, [],loss)
+        updates = optimizer.get_updates(loss, self.actor.trainable_weights)
         train = K.function([self.actor.input, action, advantages],
                            [loss], updates=updates)
         return train
@@ -90,7 +165,7 @@ class A3CAgent:
         loss = K.mean(K.square(discounted_prediction - value))
 
         optimizer = RMSprop(lr=self.critic_lr, rho=0.99, epsilon=0.01)
-        updates = optimizer.get_updates(self.critic.trainable_weights, [], loss)
+        updates = optimizer.get_updates(loss, self.critic.trainable_weights)
         train = K.function([self.critic.input, discounted_prediction],
                            [loss], updates=updates)
         return train
@@ -105,37 +180,220 @@ class A3CAgent:
 
 
 class Agent(threading.Thread):
-    def __init__(self):
+    def __init__(self, action_size, state_size, model, optimizer, discount_factor, render):
         threading.Thread.__init__(self)
 
+        self.action_size = action_size
+        self.state_size = state_size
+        self.actor, self.critic = model
+        self.optimizer = optimizer
+        self.discount_factor = discount_factor
+        self.render = render
+
+        self.states, self.rewards, self.actions = [], [], []
+
+        self.local_actor, self.local_critic = self.build_local_model()
+
+        self.avg_p_max = 0
+        self.avg_loss = 0
+        self.score = 0
+
+        self.t_max = 40
+        self.t = 0
+
+    def run(self):
+        global episode, global_score, global_p_max, global_episode
+        global global_actor_loss, global_critic_loss
+        env = Env(self.render)
+
+        step = 0
+        actor_loss, critic_loss = [], []
+        while episode < EPISODES:
+
+            observe, reward, done, _ = env.reset()
+            state = preprocess(observe).reshape((1, RESIZE, RESIZE))
+            history = np.copy(state)
+            for _ in range(SEQUENCE_SIZE - 1):
+                history = np.append(history, state, axis=0)
+                state = np.copy(state)
+            history = np.reshape([history], (1, SEQUENCE_SIZE, RESIZE, RESIZE))
+            #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE)
+
+            while not done:
+                step += 1
+                self.t += 1
+
+                #choose action, get policy
+                action, policy = self.get_action(history)
 
 
 
-tmp = A3CAgent()
-tmp.build_model()
+
+                # interact
+                observe, reward, done, _ = env.step(action)
+
+                # preprocessing, history update
+                next_state = preprocess(observe)
+                next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE))
+                next_history = np.append(next_state, history[:, :(SEQUENCE_SIZE-1), :, :], axis=1)
+
+                # milestone: avg_p_max
+                self.avg_p_max += np.amax(self.actor.predict(np.float32(history / 255.)))
+
+                self.score += reward
+
+                # store history
+                self.append_sample(history, action, reward)
 
 
-class Agent(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
+                history = next_history
 
-    def build_model(self):
-        pass
+                # training logic
+                if self.t >= self.t_max or done:
+                    a, c = self.train_model(done)
+                    actor_loss.append(a[0])
+                    critic_loss.append(c[0])
+                    self.update_local_model()
+                    self.t = 0
+
+                if done:
+                    # reporting information
+                    episode += 1
+
+                    print("episode:", episode, "  score:", self.score, "  step:",step, "avg_p_max: ", self.avg_p_max/float(step), " actor loss: ", sum(actor_loss)/step, " critic loss: ", sum(critic_loss)/step )
+                    global_score.append(self.score)
+                    global_p_max.append(self.avg_p_max/float(step))
+                    global_episode.append(episode)
+                    global_actor_loss.append(sum(actor_loss)/step)
+                    global_critic_loss.append(sum(critic_loss)/step)
+                    self.avg_p_max = 0
+                    self.avg_loss = 0
+                    self.score = 0
+                    step = 0
+
+    def build_local_model(self):
+        #for reshaping tensor
+        shape = list(self.state_size)
+        shape.append(1)
+
+        input = Input(shape=self.state_size)
+        reshaped = Reshape(shape)(input)
+        conv  = TimeDistributed(Conv2D(16, (8, 8), strides=(4, 4), activation="relu"))(reshaped)
+        conv = TimeDistributed(Conv2D(32, (4, 4), strides=(2, 2), activation="relu"))(conv)
+        conv = TimeDistributed(Flatten())(conv)
+        lstm = LSTM(512, activation='tanh')(conv)
+
+        policy = Dense(self.action_size, activation="softmax")(lstm)
+        value = Dense(1, activation='linear')(lstm)
+
+        local_actor = Model(inputs=input, outputs=policy)
+        local_critic = Model(inputs=input, outputs=value)
+
+        local_actor._make_predict_function()
+        local_critic._make_predict_function()
+
+        local_actor.set_weights(self.actor.get_weights())
+        local_critic.set_weights(self.critic.get_weights())
+
+        return local_actor, local_critic
+
+    def update_local_model(self):
+        self.local_actor.set_weights(self.actor.get_weights())
+        self.local_critic.set_weights(self.critic.get_weights())
+
+    def discounted_prediction(self, rewards, done):
+        discounted_prediction = np.zeros_like(rewards)
+        running_add = 0
+
+        if not done:
+            running_add = self.critic.predict(np.float32(self.states[-1] / 255.))[0]
+
+        for t in reversed(range(0, len(rewards))):
+            running_add = running_add * self.discount_factor + rewards[t]
+            discounted_prediction[t] = running_add
+        return discounted_prediction
+
+    def train_model(self, done):
+        discounted_prediction = self.discounted_prediction(self.rewards, done)
+
+        states = np.zeros((len(self.states),SEQUENCE_SIZE, RESIZE, RESIZE))
+        for i in range(len(self.states)):
+            states[i] = self.states[i]
+
+        states = np.float32(states / 255.)
+
+        values = self.local_critic.predict(states)
+        values = np.reshape(values, len(values))
+
+        advantages = discounted_prediction - values
+
+        action_loss = self.optimizer[0]([states, self.actions, advantages])
+        critic_loss = self.optimizer[1]([states, discounted_prediction])
+        self.states, self.actions, self.rewards = [], [], []
+        return action_loss, critic_loss
+
+    def get_action(self, history):
+        history = np.float32(history / 255.)
+        policy = self.local_actor.predict(history)[0]
+        action_index = np.random.choice(self.action_size, 1, p=policy)[0]
+        return action_index, policy
+
+    def append_sample(self, history, action, reward):
+        self.states.append(history)
+        act = np.zeros(self.action_size)
+        act[action] = 1
+        self.actions.append(act)
+        self.rewards.append(reward)
+
+    def play(self):
+        env = Env(self.render)
+
+        step = 0
+        EPISODES = 50
+        episode = 0
+        while episode < EPISODES:
+            self.score = 0
+            observe, reward, done, _ = env.reset()
+            state = preprocess(observe).reshape((1, RESIZE, RESIZE))
+            history = np.copy(state)
+            for _ in range(SEQUENCE_SIZE - 1):
+                history = np.append(history, state, axis=0)
+                state = np.copy(state)
+            history = np.reshape([history], (1, SEQUENCE_SIZE, RESIZE, RESIZE))
+            #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE)
+
+            while not done:
+                step += 1
+
+                #choose action, get policy
+                action, policy = self.get_action(history)
 
 
 
-"""
-np.set_printoptions(threshold=np.nan)
-e = Env(True)
-e.reset()
-while(True):
-    a = np.random.randint(0, 5)
-    sleep(0.05)
-    o, r, d, _ = e.step(a)
-    im = preprocess(o)
-    if d:
-        print(np.asarray(im).shape)
-        im.show()
-        sleep(5)
-        break
-"""
+
+                # interact
+                observe, reward, done, _ = env.step(action)
+
+                # preprocessing, history update
+                next_state = preprocess(observe)
+                next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE))
+                history = np.append(next_state, history[:, :(SEQUENCE_SIZE-1), :, :], axis=1)
+
+                self.score += reward
+
+
+                if done:
+                    # reporting information
+                    episode += 1
+                    print("episode:", episode, "  score:", self.score, "  step:",step)
+                    self.score = 0
+                    step = 0
+
+if __name__ == "__main__":
+    mode = "thrain"
+    if mode == "train":
+        global_agent = A3CAgent(resume=True)
+        global_agent.train()
+    else:
+        global_agent = A3CAgent()
+        global_agent.play()

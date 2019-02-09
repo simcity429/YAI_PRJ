@@ -7,6 +7,9 @@ import threading
 
 RESIZE = 84
 np.set_printoptions(threshold=np.nan)
+def preprocess(arr):
+    #returns preprocessed image
+    return np.asarray(ImageOps.mirror(Image.fromarray(arr).rotate(270)).convert('L').resize((RESIZE, RESIZE)))
 
 class Game(threading.Thread):
     def __init__(self, render):
@@ -22,9 +25,19 @@ class Game(threading.Thread):
             sleep(0.05)
             o, r, d, _ = e.step(a)
             if d:
-                im = ImageOps.mirror(Image.fromarray(o).rotate(270))
-                im.show()
+                print(preprocess(o).shape)
 
+"""
+e = env.Env(True)
+e.reset()
+d = False
+while not d:
+    a = np.random.randint(0, 5)
+    sleep(0.05)
+    o, r, d, _ = e.step(a)
+    if d:
+        print(preprocess(o).shape)
+"""
 g1 = Game(True)
 g2 = Game(False)
 g3 = Game(False)
