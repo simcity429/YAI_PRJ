@@ -13,7 +13,7 @@ from time import sleep
 import threading
 RESIZE = 84
 THREAD_NUM = 4
-SEQUENCE_SIZE = 8
+SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
 EPISODES = 800000
@@ -62,6 +62,7 @@ class A3CAgent:
             self.load_model("./save_model/touhou_a3c")
 
     def train(self):
+        global global_p_max, global_critic_loss, global_actor_loss, global_score, global_episode
         # creating agents
         tmp_list = [not bool(i) for i in range(self.thread_num)]
 
@@ -390,9 +391,9 @@ class Agent(threading.Thread):
                     step = 0
 
 if __name__ == "__main__":
-    mode = "thrain"
+    mode = "train"
     if mode == "train":
-        global_agent = A3CAgent(resume=True)
+        global_agent = A3CAgent(resume=False)
         global_agent.train()
     else:
         global_agent = A3CAgent()
