@@ -220,6 +220,7 @@ class Env:
         return ret_state, 0, False, None
 
     def step(self, action):
+        pg.event.pump()
         state = self.state
         global flan_size, flan_image
         for _ in range(SKIP_FRAMES):
@@ -291,10 +292,10 @@ class Env:
             for bullet in state.bullet_list:
                 if state.flan_rect.colliderect(bullet.rect):
 #                    print("score: ", state.score)
-                    return ret_state, 0, True, state.score
+                    return ret_state, -0.1, True, state.score
 
             if flag:
-                return ret_state, 0, True, state.score
+                return ret_state, -0.1, True, state.score
             state.score += 0.01
         return ret_state, 0.01, False, state.score
 

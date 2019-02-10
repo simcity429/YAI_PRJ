@@ -13,7 +13,7 @@ from time import sleep
 import threading
 import csv
 RESIZE = 84
-THREAD_NUM = 30
+THREAD_NUM = 32
 SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
@@ -73,7 +73,7 @@ class A3CAgent:
         # creating agents
         tmp_list = [not bool(i) for i in range(self.thread_num)]
 
-        agents = [Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, render)
+        agents = [Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, False)
                   for render in tmp_list]
 
         # starts threads
@@ -83,7 +83,7 @@ class A3CAgent:
 
         f = open('output.csv', 'w', encoding='utf-8', newline='')
         wr = csv.writer(f)
-        wr.writerow(['episode', 'score', 'p_max_avg', 'actor_loss', 'critic_loss'])
+        wr.writerow(['index', 'episode', 'score', 'p_max_avg', 'actor_loss', 'critic_loss'])
         f.close()
         cnt = 0
         # saving model
@@ -216,7 +216,7 @@ class Agent(threading.Thread):
 
         step = 0
         actor_loss, critic_loss = [], []
-        while episode < EPISODES:
+        while True:
 
             observe, reward, done, _ = env.reset()
             state = preprocess(observe).reshape((1, RESIZE, RESIZE))
@@ -366,7 +366,6 @@ class Agent(threading.Thread):
         score_list = []
         episode_list = []
         while episode < EPISODES:
-            sleep(0.1)
             self.score = 0
             observe, reward, done, _ = env.reset()
             state = preprocess(observe).reshape((1, RESIZE, RESIZE))
@@ -378,6 +377,7 @@ class Agent(threading.Thread):
             #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE)
 
             while not done:
+                sleep(0.05)
                 step += 1
 
                 #choose action, get policy
