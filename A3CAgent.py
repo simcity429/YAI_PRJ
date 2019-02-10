@@ -11,8 +11,9 @@ from PIL import ImageOps
 from PIL import Image
 from time import sleep
 import threading
+import csv
 RESIZE = 84
-THREAD_NUM = 4
+THREAD_NUM = 6
 SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
@@ -60,6 +61,7 @@ class A3CAgent:
 
         if resume:
             self.load_model("./save_model/touhou_a3c")
+            print('successfully loaded')
 
     def train(self):
         global global_p_max, global_critic_loss, global_actor_loss, global_score, global_episode
@@ -77,31 +79,48 @@ class A3CAgent:
         # saving model
         while True:
             sleep(60)
+            print('saving model')
+            f = open('output.csv', 'w', encoding='utf-8', newline="")
+            wr = csv.writer(f)
             self.save_model("./save_model/touhou_a3c")
             fig, ax = plt.subplots()
-            global_score = smooth(global_score)
-            ax.plot(global_episode, global_score)
+            t_global_score = smooth(global_score)
+            ax.plot(global_episode, t_global_score)
             ax.set(xlabel='global_episode', ylabel='score', title='Score')
             fig.savefig('score.png')
             plt.close(fig)
             fig, ax = plt.subplots()
-            global_p_max = smooth(global_p_max)
-            ax.plot(global_episode, global_p_max)
+            t_global_p_max = smooth(global_p_max)
+            ax.plot(global_episode, t_global_p_max)
             ax.set(xlabel='global_episode', ylabel='p_max', title='p_max')
             fig.savefig('p_max.png')
             plt.close(fig)
             fig, ax = plt.subplots()
-            global_actor_loss = smooth(global_actor_loss)
-            ax.plot(global_episode, global_actor_loss)
+            t_global_actor_loss = smooth(global_actor_loss)
+            ax.plot(global_episode, t_global_actor_loss)
             ax.set(xlabel='global_episode', ylabel='actor_loss', title='Actor_loss')
             fig.savefig('actor_loss.png')
             plt.close(fig)
             fig, ax = plt.subplots()
-            global_critic_loss = smooth(global_critic_loss)
-            ax.plot(global_episode, global_critic_loss)
+            t_global_critic_loss = smooth(global_critic_loss)
+            ax.plot(global_episode, t_global_critic_loss)
             ax.set(xlabel='global_episode', ylabel='critic_loss', title='Critic_loss')
             fig.savefig('critic_loss.png')
+            c_global_episode = np.array(global_episode).reshape((len(global_episode), 1))
+            c_global_score = np.array(global_score).reshape((len(global_score), 1))
+            c_global_p_max = np.array(global_p_max).reshape((len(global_p_max), 1))
+            c_global_actor_loss = np.array(global_actor_loss).reshape((len(global_actor_loss), 1))
+            c_global_critic_loss = np.array(global_critic_loss).reshape((len(global_critic_loss), 1))
+            tmp = np.append(c_global_episode, c_global_score, axis=1)
+            tmp = np.append(tmp, c_global_p_max, axis=1)
+            tmp = np.append(tmp, c_global_actor_loss, axis=1)
+            tmp = np.append(tmp, c_global_critic_loss, axis=1)
+            tmp = list(tmp)
+            for row in tmp:
+                wr.writerow(row)
             plt.close(fig)
+            f.close()
+            print('save complete')
 
     def play(self):
         agent = Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, True)
@@ -231,7 +250,7 @@ class Agent(threading.Thread):
 
 
                 # interact
-                observe, reward, done, _ = env.step(action)
+                observe, reward, done, score = env.step(action)
 
                 # preprocessing, history update
                 next_state = preprocess(observe)
@@ -241,7 +260,6 @@ class Agent(threading.Thread):
                 # milestone: avg_p_max
                 self.avg_p_max += np.amax(self.actor.predict(np.float32(history / 255.)))
 
-                self.score += reward
 
                 # store history
                 self.append_sample(history, action, reward)
@@ -260,6 +278,7 @@ class Agent(threading.Thread):
                 if done:
                     # reporting information
                     episode += 1
+                    self.score = score
 
                     print("episode:", episode, "  score:", self.score, "  step:",step, "avg_p_max: ", self.avg_p_max/float(step), " actor loss: ", sum(actor_loss)/step, " critic loss: ", sum(critic_loss)/step )
                     global_score.append(self.score)
@@ -316,7 +335,7 @@ class Agent(threading.Thread):
 
     def train_model(self, done):
         discounted_prediction = self.discounted_prediction(self.rewards, done)
-
+#        print('discounted prediction: ', discounted_prediction)
         states = np.zeros((len(self.states),SEQUENCE_SIZE, RESIZE, RESIZE))
         for i in range(len(self.states)):
             states[i] = self.states[i]
@@ -326,14 +345,18 @@ class Agent(threading.Thread):
         values = self.local_critic.predict(states)
         values = np.reshape(values, len(values))
 
+#        print('values: ', values)
+
         advantages = discounted_prediction - values
 
+#        print('advantages: ', advantages)
+#        print('actions: ', self.actions)
         action_loss = self.optimizer[0]([states, self.actions, advantages])
         critic_loss = self.optimizer[1]([states, discounted_prediction])
         self.states, self.actions, self.rewards = [], [], []
         return action_loss, critic_loss
 
-    def get_action(self, history):
+    def get_action(self, history, train=True):
         history = np.float32(history / 255.)
         policy = self.local_actor.predict(history)[0]
         action_index = np.random.choice(self.action_size, 1, p=policy)[0]
@@ -353,6 +376,7 @@ class Agent(threading.Thread):
         EPISODES = 50
         episode = 0
         while episode < EPISODES:
+            sleep(0.1)
             self.score = 0
             observe, reward, done, _ = env.reset()
             state = preprocess(observe).reshape((1, RESIZE, RESIZE))
@@ -367,20 +391,20 @@ class Agent(threading.Thread):
                 step += 1
 
                 #choose action, get policy
-                action, policy = self.get_action(history)
+                action, policy = self.get_action(history, train=False)
 
 
 
 
                 # interact
-                observe, reward, done, _ = env.step(action)
+                observe, reward, done, score = env.step(action)
 
                 # preprocessing, history update
                 next_state = preprocess(observe)
                 next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE))
                 history = np.append(next_state, history[:, :(SEQUENCE_SIZE-1), :, :], axis=1)
 
-                self.score += reward
+                self.score = score
 
 
                 if done:
@@ -391,9 +415,9 @@ class Agent(threading.Thread):
                     step = 0
 
 if __name__ == "__main__":
-    mode = "train"
+    mode = "train-"
     if mode == "train":
-        global_agent = A3CAgent(resume=False)
+        global_agent = A3CAgent(resume=True)
         global_agent.train()
     else:
         global_agent = A3CAgent()

@@ -258,16 +258,20 @@ class Env:
 
             state.flan_rect.x += state.flan_dx
             state.flan_rect.y += state.flan_dy
-
+            flag = False
             if state.flan_rect.x < 0:
                 state.flan_rect.x = 0
+                flag = True
             elif state.flan_rect.x + flan_size[0] > SCREEN_WIDTH:
                 state.flan_rect.x = SCREEN_WIDTH - flan_size[0]
+                flag = True
 
             if state.flan_rect.y < 0:
                 state.flan_rect.y = 0
+                flag = True
             elif state.flan_rect.y + flan_size[1] > SCREEN_HEIGHT:
                 state.flan_rect.y = SCREEN_HEIGHT - flan_size[1]
+                flag = True
 
             for bullet in state.bullet_list:
                 bullet.move_bullet()
@@ -286,9 +290,12 @@ class Env:
             for bullet in state.bullet_list:
                 if state.flan_rect.colliderect(bullet.rect):
 #                    print("score: ", state.score)
-                    return ret_state, 0, True, _
-            state.score += 0.1
-        return ret_state, 0.1*SKIP_FRAMES, False, _
+                    return ret_state, 0, True, state.score
+
+            if flag:
+                return ret_state, 0, True, state.score
+            state.score += 0.01
+        return ret_state, 0.01, False, state.score
 
 if __name__ == "__main__":
     iter = 10
