@@ -1,6 +1,7 @@
 import pygame as pg
 import sys
 import numpy.random as r
+from matplotlib import pylab as plt
 
 SCREEN_WIDTH = 500
 SCREEN_HEIGHT = 500
@@ -298,10 +299,30 @@ class Env:
         return ret_state, 0.01, False, state.score
 
 if __name__ == "__main__":
-    iter = 10
-    for _ in range(iter):
+    mode = "random"
+    iter = 100
+    if mode == "play":
+        iter = 10
         gamepad = init_game(True)
-        run(gamepad)
+        for _ in range(iter):
+            run(gamepad)
+    else : #random auto play
+        score_list = []
+        episode_list = []
+        e = Env(render=True)
+        for episode in range(iter):
+            e.reset()
+            while True:
+                action = r.randint(0, 5)
+                _, _, done, score = e.step(action)
+                if done:
+                    episode_list.append(episode)
+                    score_list.append(score)
+                    break
+        fig, axe = plt.subplots()
+        axe.plot(episode_list, score_list)
+        fig.savefig('./random_agent_statistics')
+        print('average score of a random agent: ', sum(score_list)/iter)
 
 
 

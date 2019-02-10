@@ -4,7 +4,6 @@ from tensorflow.contrib.keras.api.keras import backend as K
 from tensorflow.contrib.keras.api.keras.layers import LSTM, Conv2D, InputLayer, TimeDistributed, Flatten, Dense, Input, Reshape
 from tensorflow.contrib.keras.api.keras.optimizers import RMSprop
 from tensorflow.contrib.keras.api.keras.models import Model
-from matplotlib import pyplot as plt
 
 import numpy as np
 from PIL import ImageOps
@@ -13,7 +12,7 @@ from time import sleep
 import threading
 import csv
 RESIZE = 84
-THREAD_NUM = 6
+THREAD_NUM = 30
 SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
@@ -38,6 +37,11 @@ def smooth(l):
     l = tmp
     return l
 
+def recent_average(l):
+    if len(l) < 100:
+        return sum(l)/len(l)
+    a = l[-100:len(l)]
+    return sum(a)/100
 
 def preprocess(arr):
     #returns preprocessed image
@@ -76,51 +80,34 @@ class A3CAgent:
             sleep(1)
             agent.start()
 
+        f = open('output.csv', 'w', encoding='utf-8', newline='')
+        wr = csv.writer(f)
+        wr.writerow(['episode', 'score', 'p_max_avg', 'actor_loss', 'critic_loss'])
+        f.close()
+        cnt = 0
         # saving model
         while True:
-            sleep(60)
-            print('saving model')
-            f = open('output.csv', 'w', encoding='utf-8', newline="")
-            wr = csv.writer(f)
-            self.save_model("./save_model/touhou_a3c")
-            fig, ax = plt.subplots()
-            t_global_score = smooth(global_score)
-            ax.plot(global_episode, t_global_score)
-            ax.set(xlabel='global_episode', ylabel='score', title='Score')
-            fig.savefig('score.png')
-            plt.close(fig)
-            fig, ax = plt.subplots()
-            t_global_p_max = smooth(global_p_max)
-            ax.plot(global_episode, t_global_p_max)
-            ax.set(xlabel='global_episode', ylabel='p_max', title='p_max')
-            fig.savefig('p_max.png')
-            plt.close(fig)
-            fig, ax = plt.subplots()
-            t_global_actor_loss = smooth(global_actor_loss)
-            ax.plot(global_episode, t_global_actor_loss)
-            ax.set(xlabel='global_episode', ylabel='actor_loss', title='Actor_loss')
-            fig.savefig('actor_loss.png')
-            plt.close(fig)
-            fig, ax = plt.subplots()
-            t_global_critic_loss = smooth(global_critic_loss)
-            ax.plot(global_episode, t_global_critic_loss)
-            ax.set(xlabel='global_episode', ylabel='critic_loss', title='Critic_loss')
-            fig.savefig('critic_loss.png')
-            c_global_episode = np.array(global_episode).reshape((len(global_episode), 1))
-            c_global_score = np.array(global_score).reshape((len(global_score), 1))
-            c_global_p_max = np.array(global_p_max).reshape((len(global_p_max), 1))
-            c_global_actor_loss = np.array(global_actor_loss).reshape((len(global_actor_loss), 1))
-            c_global_critic_loss = np.array(global_critic_loss).reshape((len(global_critic_loss), 1))
-            tmp = np.append(c_global_episode, c_global_score, axis=1)
-            tmp = np.append(tmp, c_global_p_max, axis=1)
-            tmp = np.append(tmp, c_global_actor_loss, axis=1)
-            tmp = np.append(tmp, c_global_critic_loss, axis=1)
-            tmp = list(tmp)
-            for row in tmp:
-                wr.writerow(row)
-            plt.close(fig)
-            f.close()
-            print('save complete')
+            try:
+                sleep(60)
+                print('saving model')
+                f = open('output.csv', 'a', encoding='utf-8', newline="")
+                wr = csv.writer(f)
+                self.save_model("./save_model/touhou_a3c")
+
+                current_episode = global_episode[-1]
+                avg_score = recent_average(global_score)
+                avg_pmax = recent_average(global_p_max)
+                avg_al = recent_average(global_actor_loss)
+                avg_cl = recent_average(global_critic_loss)
+
+                newline = [cnt, current_episode, avg_score, avg_pmax, avg_al, avg_cl]
+                wr.writerow(newline)
+                f.close()
+                cnt += 1
+                print('successfully saved')
+            except Exception:
+                print('saving fail, terminating')
+                exit(-10)
 
     def play(self):
         agent = Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, True)
@@ -415,10 +402,7 @@ class Agent(threading.Thread):
                     step = 0
 
 if __name__ == "__main__":
-    mode = "train-"
+    mode = "train"
     if mode == "train":
         global_agent = A3CAgent(resume=True)
         global_agent.train()
-    else:
-        global_agent = A3CAgent()
-        global_agent.play()
