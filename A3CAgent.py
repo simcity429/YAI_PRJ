@@ -6,6 +6,7 @@ from tensorflow.contrib.keras.api.keras.optimizers import RMSprop
 from tensorflow.contrib.keras.api.keras.models import Model
 
 import numpy as np
+from matplotlib import pylab as plt
 from PIL import ImageOps
 from PIL import Image
 from time import sleep
@@ -362,6 +363,8 @@ class Agent(threading.Thread):
         step = 0
         EPISODES = 50
         episode = 0
+        score_list = []
+        episode_list = []
         while episode < EPISODES:
             sleep(0.1)
             self.score = 0
@@ -396,10 +399,16 @@ class Agent(threading.Thread):
 
                 if done:
                     # reporting information
+                    episode_list.append(episode)
+                    score_list.append(self.score)
                     episode += 1
                     print("episode:", episode, "  score:", self.score, "  step:",step)
                     self.score = 0
                     step = 0
+        fig, axe = plt.subplots()
+        axe.plot(episode_list, score_list)
+        fig.savefig("./play_statistics.png")
+        print('average score of a agent: ', sum(score_list)/len(score_list))
 
 if __name__ == "__main__":
     mode = "train"
