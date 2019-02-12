@@ -13,7 +13,7 @@ from time import sleep
 import threading
 import csv
 RESIZE = 84
-THREAD_NUM = 32
+THREAD_NUM = 36
 SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
@@ -156,7 +156,7 @@ class A3CAgent:
         minus_entropy = K.sum(minus_entropy)
 
         # optimizing loss minimizes cross_entropy, maximizes entropy
-        loss = cross_entropy + 0.01 * minus_entropy
+        loss = cross_entropy + 0.005 * minus_entropy
 
         optimizer = RMSprop(lr=self.actor_lr, rho=0.99, epsilon=0.01)
         updates = optimizer.get_updates(loss, self.actor.trainable_weights)
@@ -277,6 +277,8 @@ class Agent(threading.Thread):
                     self.avg_p_max = 0
                     self.avg_loss = 0
                     self.score = 0
+                    actor_loss = []
+                    critic_loss = []
                     step = 0
 
     def build_local_model(self):

@@ -121,7 +121,7 @@ def run(gamepad):
     flan_dy = 0
     running = True
     while running:
-        score += 1/15
+        score += 0.01
         clock.tick(30)
         pressed = pg.key.get_pressed()
         r_num = r.randint(0, PROBABILITY)
@@ -177,14 +177,19 @@ def run(gamepad):
         flan_rect.x += flan_dx
         flan_rect.y += flan_dy
 
+        flag = False
         if flan_rect.x < 0:
+            flag = True
             flan_rect.x = 0
         elif flan_rect.x + flan_size[0] > SCREEN_WIDTH:
+            flag = True
             flan_rect.x = SCREEN_WIDTH - flan_size[0]
 
         if flan_rect.y < 0:
+            flag = True
             flan_rect.y = 0
         elif flan_rect.y + flan_size[1] > SCREEN_HEIGHT:
+            flag = True
             flan_rect.y = SCREEN_HEIGHT - flan_size[1]
 
         for bullet in bullet_list:
@@ -196,6 +201,9 @@ def run(gamepad):
             if flan_rect.colliderect(bullet.rect):
                 print("score: ", score)
                 running = False
+        if flag:
+            print("score: ", score)
+            running = False
 
         gamepad.fill((0,0,0))
         draw_img(gamepad, flan_image[flan_flag], flan_rect.x, flan_rect.y)
@@ -292,15 +300,15 @@ class Env:
             for bullet in state.bullet_list:
                 if state.flan_rect.colliderect(bullet.rect):
 #                    print("score: ", state.score)
-                    return ret_state, -0.1, True, state.score
+                    return ret_state, -0.2, True, state.score
 
             if flag:
-                return ret_state, -0.1, True, state.score
+                return ret_state, -0.2, True, state.score
             state.score += 0.01
         return ret_state, 0.01, False, state.score
 
 if __name__ == "__main__":
-    mode = "random"
+    mode = "play"
     iter = 100
     if mode == "play":
         iter = 10
