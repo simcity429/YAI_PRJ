@@ -96,7 +96,7 @@ class A3CAgent:
                 wr = csv.writer(f)
                 current_episode = global_episode[-1]
                 avg_score = recent_average(global_score)
-                if avg_score > prev_score:
+                if avg_score > prev_score or cnt > 9:
                     print('decide to save model')
                     self.save_model("./save_model/touhou_a3c")
                     print('saving model success')
