@@ -86,6 +86,7 @@ class A3CAgent:
         wr.writerow(['index', 'episode', 'score', 'p_max_avg', 'actor_loss', 'critic_loss'])
         f.close()
         cnt = 0
+        prev_score = 0
         # saving model
         while True:
             try:
@@ -93,10 +94,14 @@ class A3CAgent:
                 print('saving model')
                 f = open('output.csv', 'a', encoding='utf-8', newline="")
                 wr = csv.writer(f)
-                self.save_model("./save_model/touhou_a3c")
-
                 current_episode = global_episode[-1]
                 avg_score = recent_average(global_score)
+                if avg_score > prev_score:
+                    print('decide to save model')
+                    self.save_model("./save_model/touhou_a3c")
+                    print('saving model success')
+                else:
+                    print('decide not to save model')
                 avg_pmax = recent_average(global_p_max)
                 avg_al = recent_average(global_actor_loss)
                 avg_cl = recent_average(global_critic_loss)
@@ -105,7 +110,7 @@ class A3CAgent:
                 wr.writerow(newline)
                 f.close()
                 cnt += 1
-                print('successfully saved')
+                print('successfully saved csv')
             except Exception:
                 print('saving fail, terminating')
                 exit(-10)
