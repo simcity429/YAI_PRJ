@@ -2,8 +2,8 @@ import Env_Game
 from Env_Game import Env
 from tensorflow.contrib.keras.api.keras import backend as K
 from tensorflow.contrib.keras.api.keras.layers import LSTM, Conv2D, InputLayer, TimeDistributed, Flatten, Dense, Input, Reshape
-from tensorflow.contrib.keras.api.keras.optimizers import RMSprop
 from tensorflow.contrib.keras.api.keras.models import Model
+from tensorflow.contrib.keras.api.keras.optimizers import Adam
 
 import numpy as np
 from matplotlib import pylab as plt
@@ -13,7 +13,7 @@ from time import sleep
 import threading
 import csv
 RESIZE = 84
-THREAD_NUM = 36
+THREAD_NUM = 42
 SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
@@ -56,8 +56,8 @@ class A3CAgent:
         #hyperparameter
         self.discount_factor = 0.99
         self.stop_step = sequence_size
-        self.actor_lr = 2.5e-4
-        self.critic_lr = 2.5e-4
+        self.actor_lr = 0.0005
+        self.critic_lr = 0.0005
 
         self.thread_num = thread_num
 
@@ -93,15 +93,10 @@ class A3CAgent:
                 sleep(60)
                 print('saving model')
                 f = open('output.csv', 'a', encoding='utf-8', newline="")
+                self.save_model("./save_model/touhou_a3c")
                 wr = csv.writer(f)
                 current_episode = global_episode[-1]
                 avg_score = recent_average(global_score)
-                if avg_score > prev_score or cnt > 9:
-                    print('decide to save model')
-                    self.save_model("./save_model/touhou_a3c")
-                    print('saving model success')
-                else:
-                    print('decide not to save model')
                 avg_pmax = recent_average(global_p_max)
                 avg_al = recent_average(global_actor_loss)
                 avg_cl = recent_average(global_critic_loss)
@@ -110,7 +105,7 @@ class A3CAgent:
                 wr.writerow(newline)
                 f.close()
                 cnt += 1
-                print('successfully saved csv')
+                print('successfully saved')
             except Exception:
                 print('saving fail, terminating')
                 exit(-10)
@@ -163,7 +158,7 @@ class A3CAgent:
         # optimizing loss minimizes cross_entropy, maximizes entropy
         loss = cross_entropy + 0.005 * minus_entropy
 
-        optimizer = RMSprop(lr=self.actor_lr, rho=0.99, epsilon=0.01)
+        optimizer = Adam(lr=self.actor_lr)
         updates = optimizer.get_updates(loss, self.actor.trainable_weights)
         train = K.function([self.actor.input, action, advantages],
                            [loss], updates=updates)
@@ -177,7 +172,7 @@ class A3CAgent:
         # loss = MSE(discounted_prediction, value)
         loss = K.mean(K.square(discounted_prediction - value))
 
-        optimizer = RMSprop(lr=self.critic_lr, rho=0.99, epsilon=0.01)
+        optimizer = Adam(lr=self.critic_lr)
         updates = optimizer.get_updates(loss, self.critic.trainable_weights)
         train = K.function([self.critic.input, discounted_prediction],
                            [loss], updates=updates)
