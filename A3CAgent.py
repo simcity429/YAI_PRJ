@@ -106,9 +106,9 @@ class A3CAgent:
                 f.close()
                 cnt += 1
                 print('successfully saved')
-            except Exception:
-                print('saving fail, terminating')
-                exit(-10)
+            except Exception as ex:
+                print(ex)
+                print('saving fail, but continue')
 
     def play(self):
         agent = Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, True)
@@ -151,12 +151,13 @@ class A3CAgent:
         cross_entropy = K.log(action_prob + 1e-10) * advantages
         cross_entropy = -K.sum(cross_entropy)
 
+
         # add (-entropy) to loss function, for enthusiastic search
-        minus_entropy = K.sum(policy * K.log(policy + 1e-10), axis=1)
-        minus_entropy = K.sum(minus_entropy)
+#        minus_entropy = K.sum(policy * K.log(policy + 1e-10), axis=1)
+#        minus_entropy = K.sum(minus_entropy)
 
         # optimizing loss minimizes cross_entropy, maximizes entropy
-        loss = cross_entropy + 0.005 * minus_entropy
+        loss = cross_entropy #+ 0.005 * minus_entropy
 
         optimizer = Adam(lr=self.actor_lr)
         updates = optimizer.get_updates(loss, self.actor.trainable_weights)
