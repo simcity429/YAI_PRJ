@@ -36,7 +36,7 @@ class Bullet:
         self.dx = 0
         self.dy = 0
         margin = bullet_size[0]/2
-        bullet_loc_select = r.randint(0, 3)
+        bullet_loc_select = r.randint(0, 4)
         if bullet_loc_select == 0:
             x = r.randint(0 - margin, SCREEN_WIDTH - margin)
             y = r.randint(0 - margin, 0)
@@ -308,7 +308,7 @@ class Env:
         return ret_state, 0.01, False, state.score
 
 if __name__ == "__main__":
-    mode = "play"
+    mode = "play-"
     iter = 100
     if mode == "play":
         iter = 10

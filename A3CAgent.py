@@ -13,7 +13,7 @@ from time import sleep
 import threading
 import csv
 RESIZE = 84
-THREAD_NUM = 42
+THREAD_NUM = 24
 SEQUENCE_SIZE = 4
 STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
 ACTION_SIZE = Env_Game.ACTION_SIZE
@@ -56,7 +56,7 @@ class A3CAgent:
         #hyperparameter
         self.discount_factor = 0.99
         self.stop_step = sequence_size
-        self.actor_lr = 0.0005
+        self.actor_lr = 0.0006
         self.critic_lr = 0.0005
 
         self.thread_num = thread_num
@@ -73,7 +73,7 @@ class A3CAgent:
         # creating agents
         tmp_list = [not bool(i) for i in range(self.thread_num)]
 
-        agents = [Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, False)
+        agents = [Agent(self.action_size, self.state_size, [self.actor, self.critic], self.optimizer, self.discount_factor, render)
                   for render in tmp_list]
 
         # starts threads
@@ -86,7 +86,7 @@ class A3CAgent:
         wr.writerow(['index', 'episode', 'score', 'p_max_avg', 'actor_loss', 'critic_loss'])
         f.close()
         cnt = 0
-        prev_score = 0
+        max_score = 0
         # saving model
         while True:
             try:
@@ -100,7 +100,10 @@ class A3CAgent:
                 avg_pmax = recent_average(global_p_max)
                 avg_al = recent_average(global_actor_loss)
                 avg_cl = recent_average(global_critic_loss)
-
+                if avg_score > max_score:
+                    max_score = avg_score
+                    print('max_score: ', max_score)
+                    self.save_model("./save_best/touhou_a3c")
                 newline = [cnt, current_episode, avg_score, avg_pmax, avg_al, avg_cl]
                 wr.writerow(newline)
                 f.close()
@@ -153,11 +156,11 @@ class A3CAgent:
 
 
         # add (-entropy) to loss function, for enthusiastic search
-#        minus_entropy = K.sum(policy * K.log(policy + 1e-10), axis=1)
-#        minus_entropy = K.sum(minus_entropy)
+        minus_entropy = K.sum(policy * K.log(policy + 1e-10), axis=1)
+        minus_entropy = K.sum(minus_entropy)
 
         # optimizing loss minimizes cross_entropy, maximizes entropy
-        loss = cross_entropy #+ 0.005 * minus_entropy
+        loss = cross_entropy# + 0.001 * minus_entropy
 
         optimizer = Adam(lr=self.actor_lr)
         updates = optimizer.get_updates(loss, self.actor.trainable_weights)
