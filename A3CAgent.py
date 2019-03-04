@@ -1,7 +1,7 @@
 import Env_Game
 from Env_Game import Env
 from tensorflow.contrib.keras.api.keras import backend as K
-from tensorflow.contrib.keras.api.keras.layers import LSTM, Conv2D, InputLayer, TimeDistributed, Flatten, Dense, Input, Reshape
+from tensorflow.contrib.keras.api.keras.layers import BatchNormalization, Conv2D, InputLayer, TimeDistributed, Flatten, Dense, Input, Reshape, GRU
 from tensorflow.contrib.keras.api.keras.models import Model
 from tensorflow.contrib.keras.api.keras.optimizers import Adam
 
@@ -13,9 +13,9 @@ from time import sleep
 import threading
 import csv
 RESIZE = 84
-THREAD_NUM = 24
-SEQUENCE_SIZE = 4
-STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE)
+THREAD_NUM = 40
+SEQUENCE_SIZE = 5
+STATE_SIZE = (SEQUENCE_SIZE, RESIZE, RESIZE, 3)
 ACTION_SIZE = Env_Game.ACTION_SIZE
 EPISODES = 800000
 episode = 0
@@ -24,19 +24,6 @@ global_score = []
 global_episode = []
 global_actor_loss = []
 global_critic_loss = []
-
-def smooth(l):
-    if len(l) < 10:
-        return
-    tmp = []
-    for i in range(len(l)):
-        tmp.append(l[i])
-        if i == 8:
-            break
-    for i in range(9, len(l)):
-        tmp.append(sum(l[i-9:i+1])/10)
-    l = tmp
-    return l
 
 def recent_average(l):
     if len(l) < 100:
@@ -47,17 +34,17 @@ def recent_average(l):
 def preprocess(arr):
     #returns preprocessed image
     im = Image.fromarray(arr)
-    return np.asarray(ImageOps.mirror(im.rotate(270)).convert('L').resize((RESIZE, RESIZE)))
+    return np.asarray(ImageOps.mirror(im.rotate(270)).resize((RESIZE, RESIZE)))
 
 class A3CAgent:
     def __init__(self, state_size=STATE_SIZE, action_size=ACTION_SIZE, sequence_size=SEQUENCE_SIZE, thread_num=THREAD_NUM, resume=True):
         self.state_size = state_size
         self.action_size = action_size
         #hyperparameter
-        self.discount_factor = 0.99
+        self.discount_factor = 0.95
         self.stop_step = sequence_size
-        self.actor_lr = 0.0006
-        self.critic_lr = 0.0005
+        self.actor_lr = 0.0001
+        self.critic_lr = 0.0001
 
         self.thread_num = thread_num
 
@@ -118,15 +105,14 @@ class A3CAgent:
         agent.play()
 
     def build_model(self):
-        #for reshaping tensor
-        shape = list(self.state_size)
-        shape.append(1)
         input = Input(shape=self.state_size)
-        reshaped = Reshape(shape)(input)
-        conv  = TimeDistributed(Conv2D(16, (8, 8), strides=(4, 4), activation="relu"))(reshaped)
-        conv = TimeDistributed(Conv2D(32, (4, 4), strides=(2, 2), activation="relu"))(conv)
+        conv  = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4), activation="elu"))(input)
+        conv = TimeDistributed(Conv2D(32, (4, 4), strides=(2, 2), activation="elu"))(conv)
+        conv = TimeDistributed(Conv2D(32, (3, 3), strides=(1, 1), activation='elu'))(conv)
+        conv = TimeDistributed(Conv2D(8, (1,1), strides=(1, 1), activation='elu'))(conv)
         conv = TimeDistributed(Flatten())(conv)
-        lstm = LSTM(512, activation='tanh')(conv)
+        conv = BatchNormalization()(conv)
+        lstm = GRU(256, activation='tanh')(conv)
 
         policy = Dense(self.action_size, activation="softmax")(lstm)
         value = Dense(1, activation='linear')(lstm)
@@ -152,15 +138,15 @@ class A3CAgent:
 
         action_prob = K.sum(action * policy, axis=1)
         cross_entropy = K.log(action_prob + 1e-10) * advantages
-        cross_entropy = -K.sum(cross_entropy)
+        cross_entropy = -K.mean(cross_entropy)
 
 
         # add (-entropy) to loss function, for enthusiastic search
         minus_entropy = K.sum(policy * K.log(policy + 1e-10), axis=1)
-        minus_entropy = K.sum(minus_entropy)
+        minus_entropy = K.mean(minus_entropy)
 
         # optimizing loss minimizes cross_entropy, maximizes entropy
-        loss = cross_entropy# + 0.001 * minus_entropy
+        loss = cross_entropy  + 0.01 * minus_entropy
 
         optimizer = Adam(lr=self.actor_lr)
         updates = optimizer.get_updates(loss, self.actor.trainable_weights)
@@ -210,26 +196,26 @@ class Agent(threading.Thread):
         self.avg_loss = 0
         self.score = 0
 
-        self.t_max = 40
+        self.t_max = 20
         self.t = 0
 
     def run(self):
         global episode, global_score, global_p_max, global_episode
         global global_actor_loss, global_critic_loss
         env = Env(self.render)
-
+        np.set_printoptions(threshold=np.nan)
         step = 0
         actor_loss, critic_loss = [], []
         while True:
 
             observe, reward, done, _ = env.reset()
-            state = preprocess(observe).reshape((1, RESIZE, RESIZE))
+            state = preprocess(observe).reshape((1, RESIZE, RESIZE, 3))
             history = np.copy(state)
             for _ in range(SEQUENCE_SIZE - 1):
                 history = np.append(history, state, axis=0)
                 state = np.copy(state)
-            history = np.reshape([history], (1, SEQUENCE_SIZE, RESIZE, RESIZE))
-            #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE)
+            history = np.reshape([history], (1, SEQUENCE_SIZE, RESIZE, RESIZE, 3))
+            #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE, 3)
 
             while not done:
                 step += 1
@@ -246,8 +232,8 @@ class Agent(threading.Thread):
 
                 # preprocessing, history update
                 next_state = preprocess(observe)
-                next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE))
-                next_history = np.append(next_state, history[:, :(SEQUENCE_SIZE-1), :, :], axis=1)
+                next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE, 3))
+                next_history = np.append(history[:, 1:, :, :, :], next_state, axis=1)
 
                 # milestone: avg_p_max
                 self.avg_p_max += np.amax(self.actor.predict(np.float32(history / 255.)))
@@ -261,7 +247,7 @@ class Agent(threading.Thread):
 
                 # training logic
                 if self.t >= self.t_max or done:
-                    a, c = self.train_model(done)
+                    a, c = self.train_model(next_history, done)
                     actor_loss.append(a[0])
                     critic_loss.append(c[0])
                     self.update_local_model()
@@ -286,16 +272,14 @@ class Agent(threading.Thread):
                     step = 0
 
     def build_local_model(self):
-        #for reshaping tensor
-        shape = list(self.state_size)
-        shape.append(1)
-
         input = Input(shape=self.state_size)
-        reshaped = Reshape(shape)(input)
-        conv  = TimeDistributed(Conv2D(16, (8, 8), strides=(4, 4), activation="relu"))(reshaped)
-        conv = TimeDistributed(Conv2D(32, (4, 4), strides=(2, 2), activation="relu"))(conv)
+        conv = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4), activation="elu"))(input)
+        conv = TimeDistributed(Conv2D(32, (4, 4), strides=(2, 2), activation="elu"))(conv)
+        conv = TimeDistributed(Conv2D(32, (3, 3), strides=(1, 1), activation='elu'))(conv)
+        conv = TimeDistributed(Conv2D(8, (1,1), strides=(1, 1), activation='elu'))(conv)
         conv = TimeDistributed(Flatten())(conv)
-        lstm = LSTM(512, activation='tanh')(conv)
+        conv = BatchNormalization()(conv)
+        lstm = GRU(256, activation='tanh')(conv)
 
         policy = Dense(self.action_size, activation="softmax")(lstm)
         value = Dense(1, activation='linear')(lstm)
@@ -315,22 +299,22 @@ class Agent(threading.Thread):
         self.local_actor.set_weights(self.actor.get_weights())
         self.local_critic.set_weights(self.critic.get_weights())
 
-    def discounted_prediction(self, rewards, done):
+    def discounted_prediction(self, next_history, rewards, done):
         discounted_prediction = np.zeros_like(rewards)
         running_add = 0
 
         if not done:
-            running_add = self.critic.predict(np.float32(self.states[-1] / 255.))[0]
+            running_add = self.critic.predict(np.float32(next_history / 255.))[0]
 
         for t in reversed(range(0, len(rewards))):
             running_add = running_add * self.discount_factor + rewards[t]
             discounted_prediction[t] = running_add
         return discounted_prediction
 
-    def train_model(self, done):
-        discounted_prediction = self.discounted_prediction(self.rewards, done)
+    def train_model(self, next_history, done):
+        discounted_prediction = self.discounted_prediction(next_history, self.rewards, done)
 #        print('discounted prediction: ', discounted_prediction)
-        states = np.zeros((len(self.states),SEQUENCE_SIZE, RESIZE, RESIZE))
+        states = np.zeros((len(self.states),SEQUENCE_SIZE, RESIZE, RESIZE, 3))
         for i in range(len(self.states)):
             states[i] = self.states[i]
 
@@ -350,7 +334,7 @@ class Agent(threading.Thread):
         self.states, self.actions, self.rewards = [], [], []
         return action_loss, critic_loss
 
-    def get_action(self, history, train=True):
+    def get_action(self, history):
         history = np.float32(history / 255.)
         policy = self.local_actor.predict(history)[0]
         action_index = np.random.choice(self.action_size, 1, p=policy)[0]
@@ -374,31 +358,29 @@ class Agent(threading.Thread):
         while episode < EPISODES:
             self.score = 0
             observe, reward, done, _ = env.reset()
-            state = preprocess(observe).reshape((1, RESIZE, RESIZE))
+            state = preprocess(observe).reshape((1, RESIZE, RESIZE, 3))
             history = np.copy(state)
             for _ in range(SEQUENCE_SIZE - 1):
                 history = np.append(history, state, axis=0)
                 state = np.copy(state)
-            history = np.reshape([history], (1, SEQUENCE_SIZE, RESIZE, RESIZE))
-            #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE)
+            history = np.reshape([history], (1, SEQUENCE_SIZE, RESIZE, RESIZE, 3))
+            #history.shape = (1, SEQUENCE_SIZE, RESIZE, RESIZE, 3)
 
             while not done:
                 sleep(0.05)
                 step += 1
 
                 #choose action, get policy
-                action, policy = self.get_action(history, train=False)
-
+                action, policy = self.get_action(history)
 
 
 
                 # interact
                 observe, reward, done, score = env.step(action)
-
                 # preprocessing, history update
                 next_state = preprocess(observe)
-                next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE))
-                history = np.append(next_state, history[:, :(SEQUENCE_SIZE-1), :, :], axis=1)
+                next_state = np.reshape([next_state], (1, 1, RESIZE, RESIZE, 3))
+                history = np.append(history[:, 1:, :, :, :], next_state, axis=1)
 
                 self.score = score
 

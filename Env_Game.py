@@ -1,16 +1,18 @@
 import pygame as pg
 import sys
 import numpy.random as r
+import math
 from matplotlib import pylab as plt
 
 SCREEN_WIDTH = 500
 SCREEN_HEIGHT = 500
 SKIP_FRAMES = 2
-MAX_SPEED = 20
+MAX_SPEED = 25
 BULLET_MAX_SPEED = 12
-DSPEED = 2
-PROBABILITY = 4
+DSPEED = 4
+PROBABILITY = 8
 ACTION_SIZE = 5
+LIFE = 3
 
 flan_image = []
 flan_stop = pg.image.load("./image/flan_stop.jpg")
@@ -29,7 +31,7 @@ bullet_size = bullet_image.get_rect().size
 clock = pg.time.Clock()
 
 class Bullet:
-    def __init__(self):
+    def __init__(self, flan_x, flan_y):
         global bullet_size
         x = 0
         y = 0
@@ -40,23 +42,31 @@ class Bullet:
         if bullet_loc_select == 0:
             x = r.randint(0 - margin, SCREEN_WIDTH - margin)
             y = r.randint(0 - margin, 0)
-            self.dx = r.randint(-BULLET_MAX_SPEED, BULLET_MAX_SPEED)
-            self.dy = r.randint(1, BULLET_MAX_SPEED)
+            velocity = r.randint(2, BULLET_MAX_SPEED)
+            dx, dy = (flan_x - x, flan_y - y)
+            distance = (dx**2 + dy**2)**0.5
+            self.dx, self.dy = int((velocity*dx)/distance), int((velocity*dy)/distance)
         elif bullet_loc_select == 1:
             x = r.randint(0 - margin, 0)
             y = r.randint(0 - margin, SCREEN_HEIGHT - margin)
-            self.dx = r.randint(1, BULLET_MAX_SPEED)
-            self.dy = r.randint(-BULLET_MAX_SPEED, BULLET_MAX_SPEED)
+            velocity = r.randint(2, BULLET_MAX_SPEED)
+            dx, dy = (flan_x - x, flan_y - y)
+            distance = (dx**2 + dy**2)**0.5
+            self.dx, self.dy = int((velocity*dx)/distance), int((velocity*dy)/distance)
         elif bullet_loc_select == 2:
             x = r.randint(0 - margin, SCREEN_WIDTH - margin)
             y = r.randint(SCREEN_HEIGHT, SCREEN_HEIGHT + margin)
-            self.dx = r.randint(-BULLET_MAX_SPEED, BULLET_MAX_SPEED)
-            self.dy = r.randint(-BULLET_MAX_SPEED, -1)
+            velocity = r.randint(2, BULLET_MAX_SPEED)
+            dx, dy = (flan_x - x, flan_y - y)
+            distance = (dx**2 + dy**2)**0.5
+            self.dx, self.dy = int((velocity*dx)/distance), int((velocity*dy)/distance)
         else:
             x = r.randint(SCREEN_WIDTH, SCREEN_WIDTH + margin)
             y = r.randint(0 - margin, SCREEN_HEIGHT - margin)
-            self.dx = r.randint(-BULLET_MAX_SPEED, -1)
-            self.dy = r.randint(-BULLET_MAX_SPEED, BULLET_MAX_SPEED)
+            velocity = r.randint(2, BULLET_MAX_SPEED)
+            dx, dy = (flan_x - x, flan_y - y)
+            distance = (dx**2 + dy**2)**0.5
+            self.dx, self.dy = int((velocity*dx)/distance), int((velocity*dy)/distance)
 
         self.rect = pg.Rect(x, y, int(bullet_size[0]*0.3), int(bullet_size[1]*0.3))
 
@@ -77,11 +87,12 @@ class State:
         self.flan_flag = 0
         self.flan_dx = 0
         self.flan_dy = 0
+        self.life = LIFE
         self.score = 0
         self.bullet_list = []
 
-def bullet_create(bullet_list):
-    bullet = Bullet()
+def bullet_create(bullet_list, flan_x, flan_y):
+    bullet = Bullet(flan_x, flan_y)
     bullet_list.append(bullet)
 
 def bullet_clean(bullet_list):
@@ -113,7 +124,7 @@ def run(gamepad):
     global flan_size
     bullet_list = []
     score = 0
-
+    life = 5
     flan_loc = [(SCREEN_WIDTH-(flan_size[0]/2))/2, (SCREEN_HEIGHT-(flan_size[1]/2))/2]
     flan_rect = pg.Rect(flan_loc, (flan_size[0] * 0.5, flan_size[1] * 0.5))
     flan_flag = 0
@@ -126,7 +137,7 @@ def run(gamepad):
         pressed = pg.key.get_pressed()
         r_num = r.randint(0, PROBABILITY)
         if (r_num == 1):
-            bullet_create(bullet_list)
+            bullet_create(bullet_list, flan_rect.x, flan_rect.y)
 
         if (pressed[pg.K_RIGHT]):
             flan_dx += DSPEED
@@ -199,11 +210,15 @@ def run(gamepad):
 
         for bullet in bullet_list:
             if flan_rect.colliderect(bullet.rect):
+                life -= 1
+                if life < 0:
+                    print('score: ', score)
+                    running = False
+        if flag:
+            life -= LIFE
+            if life < 0:
                 print("score: ", score)
                 running = False
-        if flag:
-            print("score: ", score)
-            running = False
 
         gamepad.fill((0,0,0))
         draw_img(gamepad, flan_image[flan_flag], flan_rect.x, flan_rect.y)
@@ -214,7 +229,6 @@ def run(gamepad):
 class Env:
     def __init__(self, render):
         self.action_size = 5
-
         self.render = render
 
     def reset(self):
@@ -231,11 +245,13 @@ class Env:
         pg.event.pump()
         state = self.state
         global flan_size, flan_image
+        done = False
+        ret_state = None
         for _ in range(SKIP_FRAMES):
             # bullet create
             r_num = r.randint(0, PROBABILITY)
             if (r_num == 1):
-                bullet_create(state.bullet_list)
+                bullet_create(state.bullet_list, state.flan_rect.x, state.flan_rect.y)
             # action = {0 : stop, 1: right, 2: left, 3: up, 4: down}
             if action == 0:
                 state.flan_flag = 0
@@ -297,18 +313,32 @@ class Env:
             if self.render:
                 pg.display.flip()
 
+            done = False
+            death = 0
+            if flag:
+                death = -0.7
+                state.life -= LIFE
+                if state.life < 0:
+                    done = True
+                return ret_state, death, done, state.score
+
             for bullet in state.bullet_list:
                 if state.flan_rect.colliderect(bullet.rect):
-#                    print("score: ", state.score)
-                    return ret_state, -0.2, True, state.score
+                    death -= 0.2
+                    state.life -= 1
+            if death < 0:
+                if state.life < 0:
+                    done = True
+                return ret_state, death, done, state.score
 
-            if flag:
-                return ret_state, -0.2, True, state.score
             state.score += 0.01
-        return ret_state, 0.01, False, state.score
+        reward = 0.001
+        if action == 0:
+            reward = -0.001
+        return ret_state, reward, done, state.score
 
 if __name__ == "__main__":
-    mode = "play-"
+    mode = "_play"
     iter = 100
     if mode == "play":
         iter = 10
