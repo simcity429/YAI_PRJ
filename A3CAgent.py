@@ -37,7 +37,7 @@ def preprocess(arr):
     return np.asarray(ImageOps.mirror(im.rotate(270)).resize((RESIZE, RESIZE)))
 
 class A3CAgent:
-    def __init__(self, state_size=STATE_SIZE, action_size=ACTION_SIZE, sequence_size=SEQUENCE_SIZE, thread_num=THREAD_NUM, resume=True):
+    def __init__(self, state_size=STATE_SIZE, action_size=ACTION_SIZE, sequence_size=SEQUENCE_SIZE, thread_num=THREAD_NUM, resume=True, play=False):
         self.state_size = state_size
         self.action_size = action_size
         #hyperparameter
@@ -51,7 +51,11 @@ class A3CAgent:
         self.actor, self.critic = self.build_model()
         self.optimizer = [self.actor_optimizer(), self.critic_optimizer()]
 
-        if resume:
+        if play:
+            self.load_model("./save_best/touhou_a3c")
+            print('successfully loaded best weight')
+
+        if resume and not play:
             self.load_model("./save_model/touhou_a3c")
             print('successfully loaded')
 
@@ -146,7 +150,7 @@ class A3CAgent:
         minus_entropy = K.mean(minus_entropy)
 
         # optimizing loss minimizes cross_entropy, maximizes entropy
-        loss = cross_entropy  + 0.01 * minus_entropy
+        loss = cross_entropy  #+ 0.01 * minus_entropy
 
         optimizer = Adam(lr=self.actor_lr)
         updates = optimizer.get_updates(loss, self.actor.trainable_weights)
