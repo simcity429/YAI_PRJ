@@ -43,8 +43,8 @@ class A3CAgent:
         #hyperparameter
         self.discount_factor = 0.95
         self.stop_step = sequence_size
-        self.actor_lr = 0.0001
-        self.critic_lr = 0.0001
+        self.actor_lr = 0.00001
+        self.critic_lr = 0.00001
 
         self.thread_num = thread_num
 
